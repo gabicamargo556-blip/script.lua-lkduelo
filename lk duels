@@ -207,8 +207,10 @@ local setSpeedToggleUI, setLaggerToggleUI
 local progressRadLbl
 
 local setMenuDropBR, setMenuTpDown
+local MobileButtons
 
 -- ================= AUTO‑SAVE =================
+local CONFIG_FILE = "LKHubConfig.json"
 local saveDebounce = false
 local function autoSaveConfig()
         if saveDebounce then return end
@@ -226,8 +228,8 @@ local function autoSaveConfig()
                         infJump=State.infJumpEnabled, antiRagdoll=State.antiRagdollEnabled, fpsBoost=State.fpsBoostEnabled,
                         medusaCounter=State.medusaCounterEnabled,
                         animEnabled=State.animEnabled, unwalkEnabled=State.unwalkEnabled,
-                        mobileVisible=MobileButtons.Visible,
-                        mobileLocked=MobileButtons.Locked,
+                        mobileVisible=(MobileButtons and MobileButtons.Visible) ~= false,
+                        mobileLocked=(MobileButtons and MobileButtons.Locked) ~= false,
                         autoTpDown=State.autoTpDownEnabled, autoTpDownY=State.autoTpDownY,
                         infJumpMode=State.infJumpMode,
                         -- Keybinds
@@ -241,7 +243,7 @@ local function autoSaveConfig()
                         keyLaggerMode=State.keyLaggerMode.Name,
                         keyStealMode=State.keyStealMode.Name,
                 }
-                pcall(function() writefile("LKHubConfig.json", HttpService:JSONEncode(cfg)) end)
+                pcall(function() writefile(CONFIG_FILE, HttpService:JSONEncode(cfg)) end)
                 saveDebounce = false
         end)
 end
@@ -330,7 +332,7 @@ LP.CharacterAdded:Connect(function()
 end)
 
 -- ================= BOUTONS MOBILES =================
-local MobileButtons = {
+MobileButtons = {
         Visible = true,
         Locked = true,
         Frame = nil,
@@ -2111,9 +2113,9 @@ local function tryHitBat()
 end
 
 local function loadConfig()
-        local hasFile=false; pcall(function() hasFile=isfile("LKHubConfig.json") end)
+        local hasFile=false; pcall(function() hasFile=isfile(CONFIG_FILE) end)
         if not hasFile then return end
-        local ok,cfg=pcall(function() return HttpService:JSONDecode(readfile("LKHubConfig.json")) end)
+        local ok,cfg=pcall(function() return HttpService:JSONDecode(readfile(CONFIG_FILE)) end)
         if not ok or not cfg then return end
         if cfg.normalSpeed and type(cfg.normalSpeed)=="number" then State.normalSpeed=cfg.normalSpeed; normalBox.Text=tostring(cfg.normalSpeed) end
         if cfg.carrySpeed  and type(cfg.carrySpeed)=="number"  then State.carrySpeed=cfg.carrySpeed;   carryBox.Text=tostring(cfg.carrySpeed)   end
@@ -2359,3 +2361,10 @@ loadMiniPosition()
 loadStealBarPosition()
 refreshUIToggles()
 loadConfig()
+
+-- Salva automaticamente de tempo em tempo também
+task.spawn(function()
+        while task.wait(10) do
+                autoSaveConfig()
+        end
+end)
