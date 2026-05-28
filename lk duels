@@ -2313,7 +2313,7 @@ RunService.Heartbeat:Connect(function()
                 if tr then
                         local fp=tr.Position+tr.CFrame.LookVector*1.5
                         local dir=(fp-hrp.Position).Unit
-                        hrp.Velocity=Vector3.new(dir.X*56.5,dir.Y*56.5,dir.Z*56.5)
+                        hrp.Velocity=Vector3.new(dir.X*60,dir.Y*60,dir.Z*60)
                         if dist<=5 then tryHitBat() end
                 end
         end
