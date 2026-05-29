@@ -13,6 +13,7 @@ local State = {
         laggerActive = false,
         laggerCarryActive = false,
         autoBatToggled = false,
+        autoBatActive = false,  -- NOVO: Auto bate ativado
         hittingCooldown = false, infJumpEnabled = false,
         antiRagdollEnabled = false, fpsBoostEnabled = false,
         guiVisible = true,
@@ -28,20 +29,22 @@ local State = {
         infJumpMode = "manual",
         dropBrainrotToggled = false,
         tpDownToggled = false,
+        autoBatDelay = 0.25,  -- NOVO: Delay entre batidas
+        lastAutoBatTime = 0,  -- NOVO: Controle de tempo do auto bate
         -- Keybinds
         keyAutoLeft = Enum.KeyCode.Unknown,
         keyAutoRight = Enum.KeyCode.Unknown,
         keyDropBR = Enum.KeyCode.Unknown,
         keyTpDown = Enum.KeyCode.Unknown,
         keyAutoBat = Enum.KeyCode.Unknown,
+        keyAutoBatToggle = Enum.KeyCode.Unknown,  -- NOVO: Tecla para auto bate
         keyNormalMode = Enum.KeyCode.Unknown,
         keyCarryMode = Enum.KeyCode.Unknown,
         keyLaggerMode = Enum.KeyCode.Unknown,
         keyStealMode = Enum.KeyCode.Unknown,
-   
 }       
 
--- ========== AUTO‑STEAL ==========
+-- ========== AUTO-STEAL ==========
 local AutoSteal = {
         Enabled = false,
         Radius = 20,
@@ -172,7 +175,7 @@ local function stopAutoSteal()
                 if v.ready ~= nil then v.ready = true end
         end
 end
--- ========== FIN AUTO‑STEAL ==========
+-- ========== FIN AUTO-STEAL ==========
 
 local MOVE_KEYS = {
         [Enum.KeyCode.W]=true,[Enum.KeyCode.A]=true,
@@ -193,11 +196,12 @@ local Conns = {
         autoSteal = nil, antiRag = nil,
         autoLeft = nil, autoRight = nil,
         anchor = {}, progress = nil,
+        batAimbot = nil,  -- NOVO: Conexão do aimbot
 }
 
 local h, hrp, speedLbl
 local setAutoLeft, setAutoRight
-local setInstaGrab, setAutoBat, setInfJump, setAntiRag, setFps, setMedusaCounter, setAutoTpDown
+local setInstaGrab, setAutoBat, setAutoBatToggle, setInfJump, setAntiRag, setFps, setMedusaCounter, setAutoTpDown
 local setAnimToggle, setUnwalkToggle
 local setupMedusaCounter, stopMedusaCounter, startAntiRagdoll, stopAntiRagdoll
 local applyFPSBoost
@@ -209,7 +213,189 @@ local progressRadLbl
 local setMenuDropBR, setMenuTpDown
 local MobileButtons
 
--- ================= AUTO‑SAVE =================
+-- ================= AUTO BAT (Função do Virus Hub) =================
+local bypassPart = nil
+local bypassWeld = nil
+
+local function cleanupBypass()
+    if bypassPart then bypassPart:Destroy() bypassPart = nil end
+    if bypassWeld then bypassWeld:Destroy() bypassWeld = nil end
+end
+
+local function createProxy()
+    cleanupBypass()
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    bypassPart = Instance.new("Part")
+    bypassPart.Name = "VirusProxy"
+    bypassPart.Size = Vector3.new(1,1,1)
+    bypassPart.Transparency = 1
+    bypassPart.CanCollide = false
+    bypassPart.Massless = true
+    bypassPart.Parent = char
+    
+    bypassWeld = Instance.new("Weld")
+    bypassWeld.Part0 = hrp
+    bypassWeld.Part1 = bypassPart
+    bypassWeld.C0 = CFrame.new(0,0,0)
+    bypassWeld.Parent = bypassPart
+end
+
+local SlapList = {{1, "Bat"}, {2, "Slap"}, {3, "Iron Slap"}, {4, "Gold Slap"}, {5, "Diamond Slap"}, {6, "Emerald Slap"}, {7, "Ruby Slap"}, {8, "Dark Matter Slap"}, {9, "Flame Slap"}, {10, "Nuclear Slap"}, {11, "Galaxy Slap"}, {12, "Glitched Slap"}}
+
+local function findBat()
+    local char = LP.Character
+    if not char then return nil end
+    
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") and item.Name:lower():find("bat") then return item end
+    end
+    
+    local bp = LP:FindFirstChild("Backpack")
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
+            if item:IsA("Tool") and item.Name:lower():find("bat") then return item end
+        end
+    end
+    
+    for _, i in ipairs(SlapList) do 
+        local t = char:FindFirstChild(i[2]) or (bp and bp:FindFirstChild(i[2]))
+        if t then return t end 
+    end
+    return nil
+end
+
+local function getClosest(myRoot)
+    local target = nil
+    local dist = math.huge
+    local part = nil
+    
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character then
+            local root = p.Character:FindFirstChild("HumanoidRootPart")
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            
+            if root and hum and hum.Health > 0 then
+                local d = (root.Position - myRoot.Position).Magnitude
+                if d < dist then
+                    dist = d
+                    target = root
+                    part = p.Character:FindFirstChild("UpperTorso") or p.Character:FindFirstChild("Torso") or root
+                end
+            end
+        end
+    end
+    return target, dist, part
+end
+
+-- ========== FUNÇÃO DE AUTO BATE (DO VIRUS HUB) ==========
+local function tryAutoBat()
+    if not State.autoBatActive then return false end
+    
+    local now = tick()
+    if now - State.lastAutoBatTime < State.autoBatDelay then return false end
+    
+    local char = LP.Character
+    if not char then return false end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    
+    local bat = findBat()
+    if not bat then return false end
+    
+    if bat.Parent ~= char then
+        pcall(function() hum:EquipTool(bat) end)
+        task.wait(0.05)
+    end
+    
+    if bat.Parent == char then
+        pcall(function()
+            bat:Activate()
+            State.lastAutoBatTime = now
+            return true
+        end)
+    end
+    
+    return false
+end
+
+-- ========== AIMBOT COMPLETO COM AUTO BATE ==========
+local function startBatAimbot()
+    if Conns.batAimbot then return end
+    
+    Conns.batAimbot = RunService.Heartbeat:Connect(function(dt)
+        if not State.autoBatToggled then return end
+        local char = LP.Character
+        if not char then return end
+        
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum then return end
+        
+        local bat = findBat()
+        if bat and bat.Parent ~= char then
+            hum:EquipTool(bat)
+        end
+        
+        local tRoot, d, tTorso = getClosest(root)
+        
+        if tRoot and tTorso then
+            hum.AutoRotate = false
+            
+            local targetDir = Vector3.new(tTorso.Position.X - root.Position.X, 0, tTorso.Position.Z - root.Position.Z)
+            if targetDir.Magnitude > 0.1 then
+                targetDir = targetDir.Unit
+                local currentDir = root.CFrame.LookVector
+                local currentDirFlat = Vector3.new(currentDir.X, 0, currentDir.Z)
+                
+                if currentDirFlat.Magnitude > 0.1 then
+                    currentDirFlat = currentDirFlat.Unit
+                    local crossY = currentDirFlat:Cross(targetDir).Y
+                    local dot = math.clamp(currentDirFlat:Dot(targetDir), -1, 1)
+                    local angle = math.atan2(crossY, dot)
+                    
+                    root.AssemblyAngularVelocity = Vector3.new(0, angle * 25, 0)
+                end
+            end
+
+            if not bypassPart or bypassPart.Parent ~= char then createProxy() end
+
+            local dir = (tTorso.Position - root.Position).Unit
+            local speed = 60
+            
+            if d > 2 then
+                bypassPart.AssemblyLinearVelocity = dir * speed
+            else
+                bypassPart.AssemblyLinearVelocity = tRoot.AssemblyLinearVelocity
+            end
+            
+            -- ========== AUTO BATE ATIVADO ==========
+            if State.autoBatActive and d <= 7 then
+                tryAutoBat()
+            end
+        else
+            hum.AutoRotate = true
+        end
+    end)
+end
+
+local function stopBatAimbot()
+    if Conns.batAimbot then
+        Conns.batAimbot:Disconnect()
+        Conns.batAimbot = nil
+    end
+    local char = LP.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.AutoRotate = true end
+    end
+    cleanupBypass()
+end
+
+-- ================= AUTO-SAVE =================
 local CONFIG_FILE = "LKHubConfig.json"
 local saveDebounce = false
 local function autoSaveConfig()
@@ -223,6 +409,8 @@ local function autoSaveConfig()
                         speedType=State.speedType, laggerActive=State.laggerActive,
                         laggerCarryActive=State.laggerCarryActive,
                         autoBatToggled=State.autoBatToggled,
+                        autoBatActive=State.autoBatActive,
+                        autoBatDelay=State.autoBatDelay,
                         autoLeftEnabled=State.autoLeftEnabled, autoRightEnabled=State.autoRightEnabled,
                         autoStealEnabled=AutoSteal.Enabled, grabRadius=AutoSteal.Radius,
                         infJump=State.infJumpEnabled, antiRagdoll=State.antiRagdollEnabled, fpsBoost=State.fpsBoostEnabled,
@@ -238,6 +426,7 @@ local function autoSaveConfig()
                         keyDropBR=State.keyDropBR.Name,
                         keyTpDown=State.keyTpDown.Name,
                         keyAutoBat=State.keyAutoBat.Name,
+                        keyAutoBatToggle=State.keyAutoBatToggle.Name,
                         keyNormalMode=State.keyNormalMode.Name,
                         keyCarryMode=State.keyCarryMode.Name,
                         keyLaggerMode=State.keyLaggerMode.Name,
@@ -526,7 +715,6 @@ local function createMobilePanel()
         local GAP = 12
         local COL1_X = -(BTN_W + GAP + BTN_W + 10)
         local COL2_X = -(BTN_W + 10)
-        -- CHANGE: moved buttons slightly higher (was 0.35, now 0.30)
         local BASE_Y = 0.30
         local ROW_Y  = {-((BTN_H*4+GAP*3)/2), -((BTN_H*4+GAP*3)/2)+(BTN_H+GAP),
                         -((BTN_H*4+GAP*3)/2)+(BTN_H+GAP)*2, -((BTN_H*4+GAP*3)/2)+(BTN_H+GAP)*3}
@@ -649,13 +837,23 @@ local function createMobilePanel()
                 UDim2.new(1, COL1_X, BASE_Y, ROW_Y[2]), "VexulBtn_autobat.txt",
                 function(setActive)
                         State.autoBatToggled = not State.autoBatToggled
-                        setAutoBat(State.autoBatToggled)
+                        if setAutoBat then setAutoBat(State.autoBatToggled) end
                         setActive(State.autoBatToggled)
+                        autoSaveConfig()
+                end, true)
+        
+        -- NOVO: Botão para AUTO BATE
+        local autoBatToggleSetActive = makeSeparateBtn("BtnAutoBatToggle", "AUTO\nBATE",
+                UDim2.new(1, COL2_X, BASE_Y, ROW_Y[2]), "VexulBtn_autobattoggle.txt",
+                function(setActive)
+                        State.autoBatActive = not State.autoBatActive
+                        if setAutoBatToggle then setAutoBatToggle(State.autoBatActive) end
+                        setActive(State.autoBatActive)
                         autoSaveConfig()
                 end, true)
 
         local autoRightSetActive = makeSeparateBtn("BtnAutoRight", "AUTO\nRIGHT",
-                UDim2.new(1, COL2_X, BASE_Y, ROW_Y[2]), "VexulBtn_autoright.txt",
+                UDim2.new(1, COL1_X, BASE_Y, ROW_Y[3]), "VexulBtn_autoright.txt",
                 function(setActive)
                         State.autoRightEnabled = not State.autoRightEnabled
                         if setAutoRight then setAutoRight(State.autoRightEnabled) end
@@ -665,7 +863,7 @@ local function createMobilePanel()
                 end, true)
 
         local tpDownSetActive = makeSeparateBtn("BtnTpDown", "TP\nDOWN",
-                UDim2.new(1, COL1_X, BASE_Y, ROW_Y[3]), "VexulBtn_tpdown.txt",
+                UDim2.new(1, COL2_X, BASE_Y, ROW_Y[3]), "VexulBtn_tpdown.txt",
                 function(setActive, currentActive)
                         tpToGround()
                         if setMenuTpDown then setMenuTpDown(true) end
@@ -676,21 +874,21 @@ local function createMobilePanel()
                 end, true)
 
         local carrySpeedSetActive = makeSeparateBtn("BtnCarrySpd", "CARRY\nSPD",
-                UDim2.new(1, COL2_X, BASE_Y, ROW_Y[3]), "VexulBtn_carryspd.txt",
+                UDim2.new(1, COL1_X, BASE_Y, ROW_Y[4]), "VexulBtn_carryspd.txt",
                 function(setActive)
                         toggleSpeedType()
                         setActive(State.speedType == "carry")
                 end, true)
 
         local laggerCarrySetActive = makeSeparateBtn("BtnLaggerCarry", "LAGGER\nCARRY",
-                UDim2.new(1, COL1_X, BASE_Y, ROW_Y[4]), "VexulBtn_laggercarry.txt",
+                UDim2.new(1, COL2_X, BASE_Y, ROW_Y[4]), "VexulBtn_laggercarry.txt",
                 function(setActive)
                         toggleLaggerCarry()
                         setActive(State.laggerCarryActive)
                 end, true)
 
-        local laggerSetActive = makeSeparateBtn("BtnLaggerMode", "LAGGER\nMODE",
-                UDim2.new(1, COL2_X, BASE_Y, ROW_Y[4]), "VexulBtn_laggermode.txt",
+        local laggerSetActive = makeSeparateBtn"BtnLaggerMode", "LAGGER\nMODE",
+                UDim2.new(1, COL1_X, BASE_Y, ROW_Y[5] or 0, "VexulBtn_laggermode.txt",
                 function(setActive)
                         toggleLagger()
                         setActive(State.laggerActive)
@@ -700,6 +898,7 @@ local function createMobilePanel()
                 autoLeft = autoLeftSetActive,
                 autoRight = autoRightSetActive,
                 autoBat = autoBatSetActive,
+                autoBatToggle = autoBatToggleSetActive,
                 carrySpeed = carrySpeedSetActive,
                 lagger = laggerSetActive,
                 dropBR = dropBRSetActive,
@@ -712,6 +911,7 @@ local function createMobilePanel()
                 if MobileButtons.Buttons.autoLeft then MobileButtons.Buttons.autoLeft(State.autoLeftEnabled) end
                 if MobileButtons.Buttons.autoRight then MobileButtons.Buttons.autoRight(State.autoRightEnabled) end
                 if MobileButtons.Buttons.autoBat then MobileButtons.Buttons.autoBat(State.autoBatToggled) end
+                if MobileButtons.Buttons.autoBatToggle then MobileButtons.Buttons.autoBatToggle(State.autoBatActive) end
                 if MobileButtons.Buttons.carrySpeed then MobileButtons.Buttons.carrySpeed(State.speedType == "carry") end
                 if MobileButtons.Buttons.lagger then MobileButtons.Buttons.lagger(State.laggerActive) end
                 if MobileButtons.Buttons.laggerCarry then MobileButtons.Buttons.laggerCarry(State.laggerCarryActive) end
@@ -955,8 +1155,7 @@ gui.Name="LKHubGUI"; gui.ResetOnSpawn=false; gui.DisplayOrder=10
 gui.IgnoreGuiInset=true; gui.Parent=LP:WaitForChild("PlayerGui")
 
 -- ========================================================================
--- AUTO STEAL INDICATOR - Square / slightly rounded corners, like the image
--- Left: %, Right: Steal Radius, white fill bar
+-- AUTO STEAL INDICATOR
 -- ========================================================================
 local stealProgressBar = Instance.new("Frame", gui)
 stealProgressBar.Size = UDim2.new(0, 280, 0, 64)
@@ -965,11 +1164,9 @@ stealProgressBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 stealProgressBar.BackgroundTransparency = 0
 stealProgressBar.BorderSizePixel = 0
 stealProgressBar.ZIndex = 100
--- Slightly rounded corners only on left side (square look, small corner radius)
 local spCorner = Instance.new("UICorner", stealProgressBar)
 spCorner.CornerRadius = UDim.new(0, 10)
 
--- Left: big % label
 local pctLbl = Instance.new("TextLabel", stealProgressBar)
 pctLbl.Size = UDim2.new(0.42, 0, 0, 28)
 pctLbl.Position = UDim2.new(0, 14, 0, 7)
@@ -981,7 +1178,6 @@ pctLbl.TextSize = 24
 pctLbl.TextXAlignment = Enum.TextXAlignment.Left
 pctLbl.ZIndex = 101
 
--- Right: "Steal Radius" label
 progressRadLbl = Instance.new("TextLabel", stealProgressBar)
 progressRadLbl.Size = UDim2.new(0.58, -14, 0, 28)
 progressRadLbl.Position = UDim2.new(0.42, 0, 0, 7)
@@ -993,7 +1189,6 @@ progressRadLbl.TextSize = 18
 progressRadLbl.TextXAlignment = Enum.TextXAlignment.Right
 progressRadLbl.ZIndex = 101
 
--- Track (dark pill behind bar)
 local barTrack = Instance.new("Frame", stealProgressBar)
 barTrack.Size = UDim2.new(1, -28, 0, 14)
 barTrack.Position = UDim2.new(0, 14, 0, 40)
@@ -1002,7 +1197,6 @@ barTrack.BorderSizePixel = 0
 barTrack.ZIndex = 101
 Instance.new("UICorner", barTrack).CornerRadius = UDim.new(1, 0)
 
--- Fill: WHITE like the image
 local barFill = Instance.new("Frame", barTrack)
 barFill.Size = UDim2.new(0, 0, 1, 0)
 barFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -1105,15 +1299,15 @@ stealProgressBar:GetPropertyChangedSignal("Position"):Connect(function()
         saveStealBarPosition()
     end
 end)
+
 -- ========================================================================
 
 local main = Instance.new("Frame",gui)
-main.Name="Main"; main.Size=UDim2.new(0,260,0,450)
+main.Name="Main"; main.Size=UDim2.new(0,260,0,480)
 main.Position=UDim2.new(0,20,0,20)
 main.BackgroundColor3=C_BG; main.BorderSizePixel=0; main.Active=true; main.ClipsDescendants=true
 Instance.new("UICorner",main).CornerRadius=UDim.new(0,16)
 local mainStroke = Instance.new("UIStroke",main); mainStroke.Color=C_BORDER2; mainStroke.Thickness=1
-
 
 local function saveMainPosition()
         local pos = main.Position
@@ -1190,7 +1384,6 @@ closeBtn.MouseButton1Click:Connect(function()
         if miniBtn then miniBtn.Visible = true end
 end)
 
--- CHANGE: mini button moved slightly lower (was Y offset 56, now 66)
 miniBtn = Instance.new("TextButton",gui)
 miniBtn.Name = "LKMiniButton"
 miniBtn.Size = UDim2.new(0,150,0,30)
@@ -1452,15 +1645,10 @@ local function makeKeybindRow(label, stateKey)
         return keyBtn
 end
 
--- =========================================================
--- makeToggleRow WITH optional keybind button
--- keybindStateKey: key in State table (e.g. "keyAutoLeft")
--- =========================================================
 local function makeToggleRow(label, defaultKey, defaultOn, onToggle, onKeyChanged, keybindStateKey)
         local row=Instance.new("Frame",scroll); row.Size=UDim2.new(1,0,0,30); row.BackgroundColor3=C_ROW; row.LayoutOrder=LO()
         Instance.new("UICorner",row).CornerRadius=UDim.new(0,8)
 
-        -- Label: width depends on whether we have both keybind + toggle
         local lblWidth = keybindStateKey and 0.38 or (defaultKey and 0.5 or 0.65)
         local lbl=Instance.new("TextLabel",row)
         lbl.Size=UDim2.new(lblWidth, -4, 1, 0)
@@ -1468,7 +1656,6 @@ local function makeToggleRow(label, defaultKey, defaultOn, onToggle, onKeyChange
         lbl.BackgroundTransparency=1; lbl.Text=label; lbl.TextColor3=C_ACCENT
         lbl.Font=Enum.Font.GothamBold; lbl.TextSize=11; lbl.TextXAlignment=Enum.TextXAlignment.Left
 
-        -- Old keybind (original system, kept for non-keybind rows)
         local keyBtn=nil
         if defaultKey and not keybindStateKey then
                 keyBtn=Instance.new("TextButton",row); keyBtn.Size=UDim2.new(0,64,0,20); keyBtn.Position=UDim2.new(1,-120,0.5,-10)
@@ -1499,7 +1686,6 @@ local function makeToggleRow(label, defaultKey, defaultOn, onToggle, onKeyChange
                 end)
         end
 
-        -- NEW: Keybind button (black bg, no emoji, keyboard+controller)
         local newKeyBtn = nil
         if keybindStateKey then
                 local currentKey = State[keybindStateKey]
@@ -1552,7 +1738,6 @@ local function makeToggleRow(label, defaultKey, defaultOn, onToggle, onKeyChange
                 end)
         end
 
-        -- Toggle pill
         local pillBg=Instance.new("Frame",row); pillBg.Size=UDim2.new(0,40,0,20); pillBg.Position=UDim2.new(1,-46,0.5,-10)
         pillBg.BackgroundColor3=defaultOn and C_ON_BG or C_OFF_BG; pillBg.BorderSizePixel=0; pillBg.ZIndex=5
         Instance.new("UICorner",pillBg).CornerRadius=UDim.new(1,0)
@@ -1621,8 +1806,65 @@ makeGap(10)
 makeSectionLabel("Combat")
 -- BAT AIMBOT with keybind
 setAutoBat = makeToggleRow("Auto Bat", nil, false,
-        function(on) State.autoBatToggled=on; if MobileButtons.Buttons.autoBat then MobileButtons.Buttons.autoBat(on) end end,
+        function(on) 
+                State.autoBatToggled = on
+                if MobileButtons.Buttons.autoBat then MobileButtons.Buttons.autoBat(on) end
+                if on then startBatAimbot() else stopBatAimbot() end
+        end,
         nil, "keyAutoBat")
+
+-- NOVO: AUTO BATE TOGGLE
+setAutoBatToggle = makeToggleRow("Auto Bate", nil, false,
+        function(on) 
+                State.autoBatActive = on
+                if MobileButtons.Buttons.autoBatToggle then MobileButtons.Buttons.autoBatToggle(on) end
+        end,
+        nil, "keyAutoBatToggle")
+
+-- NOVO: Slider para delay do auto bate
+local autoBatDelayRow = Instance.new("Frame", scroll)
+autoBatDelayRow.Size = UDim2.new(1,0,0,34)
+autoBatDelayRow.BackgroundColor3 = C_ROW
+autoBatDelayRow.BorderSizePixel = 0
+autoBatDelayRow.LayoutOrder = LO()
+Instance.new("UICorner", autoBatDelayRow).CornerRadius = UDim.new(0,8)
+
+local delayLbl = Instance.new("TextLabel", autoBatDelayRow)
+delayLbl.Size = UDim2.new(0.55,0,1,0)
+delayLbl.Position = UDim2.new(0,12,0,0)
+delayLbl.BackgroundTransparency = 1
+delayLbl.Text = "Delay entre batidas"
+delayLbl.TextColor3 = C_ACCENT
+delayLbl.Font = Enum.Font.GothamBold
+delayLbl.TextSize = 11
+delayLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+local delayBox = Instance.new("TextBox", autoBatDelayRow)
+delayBox.Size = UDim2.new(0,80,0,26)
+delayBox.Position = UDim2.new(1,-86,0.5,-13)
+delayBox.BackgroundColor3 = Color3.fromRGB(0,0,0)
+delayBox.BorderSizePixel = 0
+delayBox.Text = tostring(State.autoBatDelay)
+delayBox.TextColor3 = C_ACCENT
+delayBox.Font = Enum.Font.GothamBold
+delayBox.TextSize = 14
+delayBox.ClearTextOnFocus = true
+Instance.new("UICorner", delayBox).CornerRadius = UDim.new(0,6)
+local delayBs = Instance.new("UIStroke", delayBox)
+delayBs.Color = C_BORDER2
+delayBs.Thickness = 1
+
+delayBox.FocusLost:Connect(function()
+        local n = tonumber(delayBox.Text)
+        if n then
+                State.autoBatDelay = math.clamp(n, 0.1, 1)
+                delayBox.Text = tostring(State.autoBatDelay)
+                autoSaveConfig()
+        else
+                delayBox.Text = tostring(State.autoBatDelay)
+        end
+end)
+
 makeGap(10)
 
 makeSectionLabel("Mechanics")
@@ -1734,7 +1976,7 @@ setMenuDropBR = makeToggleRow("Drop Brainrot", nil, false, function(on)
         end
 end, nil, "keyDropBR")
 
--- TP DOWN (changed from "Tp To Ground")
+-- TP DOWN
 setMenuTpDown = makeToggleRow("Tp Down", nil, false, function(on)
         if on then
                 tpToGround()
@@ -1850,41 +2092,20 @@ UIS.InputBegan:Connect(function(inp, gp)
                         if MobileButtons.Buttons.tpDown then MobileButtons.Buttons.tpDown(false) end
                 end)
         end
-        -- Auto Bat
+        -- Auto Bat (aimbot)
         if State.keyAutoBat ~= Enum.KeyCode.Unknown and kc == State.keyAutoBat then
                 State.autoBatToggled = not State.autoBatToggled
                 if setAutoBat then setAutoBat(State.autoBatToggled) end
                 if MobileButtons.Buttons.autoBat then MobileButtons.Buttons.autoBat(State.autoBatToggled) end
+                if State.autoBatToggled then startBatAimbot() else stopBatAimbot() end
                 autoSaveConfig()
         end
-end)
-
--- Controller (Gamepad) keybind listener
-UIS.InputBegan:Connect(function(inp, gp)
-        if inp.UserInputType ~= Enum.UserInputType.Gamepad1 then return end
-        local kc = inp.KeyCode
-        if State.keyAutoLeft ~= Enum.KeyCode.Unknown and kc == State.keyAutoLeft then
-                State.autoLeftEnabled = not State.autoLeftEnabled
-                if setAutoLeft then setAutoLeft(State.autoLeftEnabled) end
-                if MobileButtons.Buttons.autoLeft then MobileButtons.Buttons.autoLeft(State.autoLeftEnabled) end
-                if State.autoLeftEnabled then startAutoLeft() else stopAutoLeft() end
-        end
-        if State.keyAutoRight ~= Enum.KeyCode.Unknown and kc == State.keyAutoRight then
-                State.autoRightEnabled = not State.autoRightEnabled
-                if setAutoRight then setAutoRight(State.autoRightEnabled) end
-                if MobileButtons.Buttons.autoRight then MobileButtons.Buttons.autoRight(State.autoRightEnabled) end
-                if State.autoRightEnabled then startAutoRight() else stopAutoRight() end
-        end
-        if State.keyDropBR ~= Enum.KeyCode.Unknown and kc == State.keyDropBR then
-                runDropBrainrot()
-        end
-        if State.keyTpDown ~= Enum.KeyCode.Unknown and kc == State.keyTpDown then
-                tpToGround()
-        end
-        if State.keyAutoBat ~= Enum.KeyCode.Unknown and kc == State.keyAutoBat then
-                State.autoBatToggled = not State.autoBatToggled
-                if setAutoBat then setAutoBat(State.autoBatToggled) end
-                if MobileButtons.Buttons.autoBat then MobileButtons.Buttons.autoBat(State.autoBatToggled) end
+        -- Auto Bate toggle
+        if State.keyAutoBatToggle ~= Enum.KeyCode.Unknown and kc == State.keyAutoBatToggle then
+                State.autoBatActive = not State.autoBatActive
+                if setAutoBatToggle then setAutoBatToggle(State.autoBatActive) end
+                if MobileButtons.Buttons.autoBatToggle then MobileButtons.Buttons.autoBatToggle(State.autoBatActive) end
+                autoSaveConfig()
         end
 end)
 
@@ -2094,24 +2315,6 @@ applyFPSBoost = function()
         workspace.DescendantAdded:Connect(function(v) if State.fpsBoostEnabled then task.spawn(processObj,v) end end)
 end
 
-local function getBat()
-        local char=LP.Character; if not char then return nil end
-        local tool=char:FindFirstChild("Bat"); if tool then return tool end
-        local bp2=LP:FindFirstChild("Backpack")
-        if bp2 then tool=bp2:FindFirstChild("Bat"); if tool then tool.Parent=char; return tool end end
-        return nil
-end
-local function tryHitBat()
-        if State.hittingCooldown then return end; State.hittingCooldown=true
-        pcall(function()
-                local bat=getBat(); if bat then
-                        bat:Activate(); local ev=bat:FindFirstChildWhichIsA("RemoteEvent")
-                        if ev then ev:FireServer() end
-                end
-        end)
-        task.delay(0.08, function() State.hittingCooldown=false end)
-end
-
 local function loadConfig()
         local hasFile=false; pcall(function() hasFile=isfile(CONFIG_FILE) end)
         if not hasFile then return end
@@ -2149,7 +2352,12 @@ local function loadConfig()
                         task.wait(0.5); State.unwalkEnabled = false; startUnwalk()
                 end)
         end
-        if type(cfg.autoBatToggled) == "boolean" then State.autoBatToggled = cfg.autoBatToggled end
+        if type(cfg.autoBatToggled) == "boolean" then 
+                State.autoBatToggled = cfg.autoBatToggled
+                if State.autoBatToggled then startBatAimbot() end
+        end
+        if type(cfg.autoBatActive) == "boolean" then State.autoBatActive = cfg.autoBatActive end
+        if type(cfg.autoBatDelay) == "number" then State.autoBatDelay = cfg.autoBatDelay; delayBox.Text = tostring(State.autoBatDelay) end
         if type(cfg.autoLeftEnabled) == "boolean" then State.autoLeftEnabled = cfg.autoLeftEnabled end
         if type(cfg.autoRightEnabled) == "boolean" then State.autoRightEnabled = cfg.autoRightEnabled end
         if cfg.mobileVisible ~= nil then
@@ -2172,6 +2380,7 @@ local function loadConfig()
         loadKey("keyDropBR",    "keyDropBR")
         loadKey("keyTpDown",    "keyTpDown")
         loadKey("keyAutoBat",   "keyAutoBat")
+        loadKey("keyAutoBatToggle", "keyAutoBatToggle")
         loadKey("keyNormalMode", "keyNormalMode")
         loadKey("keyCarryMode",  "keyCarryMode")
         loadKey("keyLaggerMode", "keyLaggerMode")
@@ -2179,6 +2388,7 @@ local function loadConfig()
         task.spawn(function()
                 task.wait(0.6)
                 if MobileButtons.Buttons.autoBat then MobileButtons.Buttons.autoBat(State.autoBatToggled) end
+                if MobileButtons.Buttons.autoBatToggle then MobileButtons.Buttons.autoBatToggle(State.autoBatActive) end
                 if MobileButtons.Buttons.carrySpeed then MobileButtons.Buttons.carrySpeed(State.speedType == "carry") end
                 if MobileButtons.Buttons.lagger then MobileButtons.Buttons.lagger(State.laggerActive) end
                 if MobileButtons.Buttons.laggerCarry then MobileButtons.Buttons.laggerCarry(State.laggerCarryActive) end
@@ -2188,6 +2398,7 @@ local function loadConfig()
                 if State.laggerCarryActive then startAutoSteal() end
                 if State.autoLeftEnabled then startAutoLeft() end
                 if State.autoRightEnabled then startAutoRight() end
+                if State.autoBatToggled then startBatAimbot() end
         end)
         refreshUIToggles()
 end
@@ -2217,6 +2428,7 @@ local function setupChar(char)
         if State.unwalkEnabled then
                 State.unwalkEnabled = false; task.wait(0.3); startUnwalk()
         end
+        if State.autoBatToggled then startBatAimbot() end
 end
 
 LP.CharacterAdded:Connect(setupChar)
@@ -2239,6 +2451,7 @@ UIS.JumpRequest:Connect(function()
         local root=char:FindFirstChild("HumanoidRootPart")
         if root then root.Velocity=Vector3.new(root.Velocity.X,55,root.Velocity.Z) end
 end)
+
 RunService.Heartbeat:Connect(function()
         if not State.infJumpEnabled and not State.autoTpDownEnabled then return end
         local char=LP.Character; if not char then return end
@@ -2295,33 +2508,6 @@ RunService.RenderStepped:Connect(function()
         end
 end)
 
-local function getClosestPlayer()
-        if not hrp then return nil,math.huge end
-        local cp,cd=nil,math.huge
-        for _,p in pairs(Players:GetPlayers()) do
-                if p~=LP and p.Character then
-                        local tr=p.Character:FindFirstChild("HumanoidRootPart")
-                        if tr then local d=(hrp.Position-tr.Position).Magnitude; if d<cd then cd=d; cp=p end end
-                end
-        end
-        return cp,cd
-end
-
-RunService.Heartbeat:Connect(function()
-        if not (State.autoBatToggled and h and hrp) then return end
-        local target,dist=getClosestPlayer()
-        if target and target.Character then
-                local tr=target.Character:FindFirstChild("HumanoidRootPart")
-                if tr then
-                        local fp=tr.Position+tr.CFrame.LookVector*1.5
-                        local dir=(fp-hrp.Position).Unit
-                        hrp.Velocity=Vector3.new(dir.X*60,dir.Y*60,dir.Z*60)
-                        if dist<=5 then tryHitBat() end
-                end
-        end
-end)
-
-
 task.spawn(function()
         while task.wait(0.5) do
                 pcall(function() 
@@ -2331,7 +2517,6 @@ task.spawn(function()
                 end)
         end
 end)
-
 
 UIS.InputBegan:Connect(function(input, gp)
         if gp then return end
@@ -2362,9 +2547,172 @@ loadStealBarPosition()
 refreshUIToggles()
 loadConfig()
 
--- Salva automaticamente de tempo em tempo também
 task.spawn(function()
         while task.wait(10) do
                 autoSaveConfig()
         end
+end)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local remote = RS:WaitForChild("AimbotAttackEvent")
+
+local aimbotAtivado = true
+local distanciaAtaque = 7
+local delayAtaque = 0.35
+local ultimoAtaque = 0
+
+local function pegarInimigoMaisPerto()
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return nil end
+
+	local maisPerto = nil
+	local menorDist = distanciaAtaque
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			local enemyHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+			local enemyHum = plr.Character:FindFirstChildOfClass("Humanoid")
+
+			if enemyHRP and enemyHum and enemyHum.Health > 0 then
+				local dist = (enemyHRP.Position - hrp.Position).Magnitude
+				if dist <= menorDist then
+					menorDist = dist
+					maisPerto = plr.Character
+				end
+			end
+		end
+	end
+
+	return maisPerto
+end
+
+RunService.RenderStepped:Connect(function()
+	if not aimbotAtivado then return end
+	if tick() - ultimoAtaque < delayAtaque then return end
+
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	local alvo = pegarInimigoMaisPerto()
+	if alvo then
+		local alvoHRP = alvo:FindFirstChild("HumanoidRootPart")
+		if alvoHRP then
+			hrp.CFrame = CFrame.lookAt(
+				hrp.Position,
+				Vector3.new(alvoHRP.Position.X, hrp.Position.Y, alvoHRP.Position.Z)
+			)
+
+			ultimoAtaque = tick()
+			remote:FireServer(alvo)
+		end
+	end
+end)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local autoHit = false
+local range = 7
+local delayHit = 0.4
+local lastHit = 0
+
+-- GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "MiniAutoHitHub"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 180, 0, 80)
+frame.Position = UDim2.new(0, 20, 0, 120)
+frame.BackgroundColor3 = Color3.fromRGB(15,15,15)
+frame.Parent = gui
+
+local corner = Instance.new("UICorner", frame)
+corner.CornerRadius = UDim.new(0, 10)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundTransparency = 1
+title.Text = "MINI HUB"
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = frame
+
+local btn = Instance.new("TextButton")
+btn.Size = UDim2.new(0, 140, 0, 35)
+btn.Position = UDim2.new(0.5, -70, 0, 38)
+btn.BackgroundColor3 = Color3.fromRGB(45,45,45)
+btn.Text = "Auto Hit: OFF"
+btn.TextColor3 = Color3.fromRGB(255,255,255)
+btn.Font = Enum.Font.GothamBold
+btn.TextSize = 14
+btn.Parent = frame
+
+Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+btn.MouseButton1Click:Connect(function()
+	autoHit = not autoHit
+	btn.Text = autoHit and "Auto Hit: ON" or "Auto Hit: OFF"
+	btn.BackgroundColor3 = autoHit and Color3.fromRGB(0,170,80) or Color3.fromRGB(45,45,45)
+end)
+
+local function getClosestEnemy()
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return nil end
+
+	local closest = nil
+	local shortest = range
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			local enemyHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+			local enemyHum = plr.Character:FindFirstChildOfClass("Humanoid")
+
+			if enemyHRP and enemyHum and enemyHum.Health > 0 then
+				local dist = (enemyHRP.Position - hrp.Position).Magnitude
+				if dist <= shortest then
+					shortest = dist
+					closest = plr.Character
+				end
+			end
+		end
+	end
+
+	return closest
+end
+
+RunService.RenderStepped:Connect(function()
+	if not autoHit then return end
+	if tick() - lastHit < delayHit then return end
+
+	local char = player.Character
+	if not char then return end
+
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	local tool = char:FindFirstChildOfClass("Tool")
+
+	if not humanoid or not hrp or not tool then return end
+
+	local enemy = getClosestEnemy()
+	if enemy then
+		local enemyHRP = enemy:FindFirstChild("HumanoidRootPart")
+		if enemyHRP then
+			hrp.CFrame = CFrame.lookAt(
+				hrp.Position,
+				Vector3.new(enemyHRP.Position.X, hrp.Position.Y, enemyHRP.Position.Z)
+			)
+
+			lastHit = tick()
+			tool:Activate()
+		end
+	end
 end)
