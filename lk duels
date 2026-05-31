@@ -21,7 +21,7 @@ local autoBatEquippedThisRun = false
 local _autoBatTarget = nil
 local _autoBatLastScan = 0
 local resetAutoBatMotion = nil
-local AUTO_BAT_SPEED,AUTO_BAT_VERT_SPEED,AUTO_BAT_DIST,AUTO_BAT_HEIGHT,AUTO_BAT_V_OFF,AUTO_BAT_TURN_SPEED,AUTO_BAT_MAX_TURN_RATE = 58,52,-2.8,4.75,1,285,28
+local AUTO_BAT_SPEED,AUTO_BAT_VERT_SPEED,AUTO_BAT_DIST,AUTO_BAT_HEIGHT,AUTO_BAT_V_OFF,AUTO_BAT_TURN_SPEED,AUTO_BAT_MAX_TURN_RATE = 55,52,-2.8,4.75,1,285,28
 local setBatCounterVisual = nil
 local startBatCounter,stopBatCounter
 local antiLagEnabled = false
