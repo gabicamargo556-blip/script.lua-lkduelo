@@ -839,7 +839,7 @@ local function buildGui()
 	Instance.new("UICorner",hdr).CornerRadius=UDim.new(0,12)
 	local ttl=Instance.new("TextLabel",hdr)
 	ttl.Size=UDim2.new(1,-50,1,0);ttl.Position=UDim2.new(0,10,0,0)
-	ttl.BackgroundTransparency=1;ttl.Text="CS HUB"
+	ttl.BackgroundTransparency=1;ttl.Text="LK HUB"
 	ttl.TextColor3=RED;ttl.Font=Enum.Font.GothamBlack;ttl.TextSize=14
 	ttl.TextXAlignment=Enum.TextXAlignment.Left
 	
